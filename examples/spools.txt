@@ -1,0 +1,7 @@
+Bambu PLA Basic Red,#FF0000
+Sunlu Lime,#10F010
+eSUN Snow White,#FAFAFA
+Polymaker Jet Black,#101010
+Sky Blue,#3080FF
+Yellow,#FFE000
+#808080
