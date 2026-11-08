@@ -1,0 +1,102 @@
+{
+  "palette": [
+    {
+      "index": 1,
+      "hex": "#FF0000",
+      "uses": 2,
+      "used": true
+    },
+    {
+      "index": 2,
+      "hex": "#FA0505",
+      "uses": 1,
+      "used": true
+    },
+    {
+      "index": 3,
+      "hex": "#00FF00",
+      "uses": 1,
+      "used": true
+    },
+    {
+      "index": 4,
+      "hex": "#0000FF",
+      "uses": 0,
+      "used": false
+    },
+    {
+      "index": 5,
+      "hex": "#FFFFFF",
+      "uses": 1,
+      "used": true
+    },
+    {
+      "index": 6,
+      "hex": "#000000",
+      "uses": 1,
+      "used": true
+    }
+  ],
+  "painted": false,
+  "source": "project_settings",
+  "merges": [
+    {
+      "from": {
+        "index": 2,
+        "hex": "#FA0505",
+        "uses": 1,
+        "used": true
+      },
+      "into": {
+        "index": 1,
+        "hex": "#FF0000",
+        "uses": 3,
+        "used": true
+      },
+      "deltaE": 1.053276523329682,
+      "label": "hard to see"
+    }
+  ],
+  "plan": [
+    {
+      "slot": "T1",
+      "modelHex": "#FF0000",
+      "spool": {
+        "name": "Bambu PLA Basic Red",
+        "hex": "#FF0000"
+      },
+      "deltaE": 0,
+      "label": "hard to see"
+    },
+    {
+      "slot": "T2",
+      "modelHex": "#00FF00",
+      "spool": {
+        "name": "Sunlu Lime",
+        "hex": "#10F010"
+      },
+      "deltaE": 3.1930459910626867,
+      "label": "visible side by side"
+    },
+    {
+      "slot": "T3",
+      "modelHex": "#FFFFFF",
+      "spool": {
+        "name": "eSUN Snow White",
+        "hex": "#FAFAFA"
+      },
+      "deltaE": 0.9965225827717823,
+      "label": "hard to see"
+    },
+    {
+      "slot": "T4",
+      "modelHex": "#000000",
+      "spool": {
+        "name": "Polymaker Jet Black",
+        "hex": "#101010"
+      },
+      "deltaE": 2.7342723359102963,
+      "label": "visible side by side"
+    }
+  ]
+}
