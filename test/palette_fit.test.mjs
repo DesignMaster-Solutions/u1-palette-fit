@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { deflateRawSync } from 'node:zlib';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { deltaE00, hexToLab, parse3mf, parseSpools, reduceTo, assign } from '../palette_fit.mjs';
+import { deltaE00, hexToLab, parse3mf, parseSpools, reduceTo, assign, paintStates } from '../palette_fit.mjs';
 
 const HERE = new URL('.', import.meta.url).pathname;
 
@@ -35,7 +35,8 @@ export function makeZip(files) {
 }
 
 const SIX = ['#FF0000', '#FA0505', '#00FF00', '#0000FF', '#FFFFFF', '#000000'];
-const demo3mf = () => makeZip({
+const demo3mf = () => makeZip(demoFiles());
+const demoFiles = () => ({
   '[Content_Types].xml': '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/><Default Extension="config" ContentType="text/xml"/><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/></Types>',
   '_rels/.rels': '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>',
   '3D/3dmodel.model': '<?xml version="1.0"?><model unit="millimeter" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"><resources><object id="1" type="model"><mesh><vertices><vertex x="0" y="0" z="0"/><vertex x="10" y="0" z="0"/><vertex x="0" y="10" z="0"/><vertex x="0" y="0" z="10"/></vertices><triangles><triangle v1="0" v2="2" v3="1"/><triangle v1="0" v2="1" v3="3"/><triangle v1="0" v2="3" v3="2"/><triangle v1="1" v2="2" v3="3"/></triangles></mesh></object></resources><build><item objectid="1"/></build></model>',
@@ -110,4 +111,65 @@ test('real coaster.3mf without project_settings does not throw', async () => {
   const bytes = readFileSync('/Users/alandebortolo/Backups/impressora/u1-purge-ledger/examples/coaster/coaster.3mf');
   const r = await parse3mf(bytes);
   assert.ok(r.palette.length >= 1 || r.source === 'none', JSON.stringify(r));
+});
+
+// --- paint_color: mirror of libslic3r TriangleSelector::serialize (bits LSB first, 4 per hex digit, string written last nibble first)
+// tree: number = leaf state; [special, child0, child1, ...] = split triangle (children serialized in reverse, like the slicer)
+function encodePaint(tree) {
+  const bits = [];
+  const push = (v, n) => { for (let b = 0; b < n; b++) bits.push((v >> b) & 1); };
+  const walk = (t) => {
+    if (typeof t === 'number') {
+      push(0, 2);
+      if (t >= 3) { push(3, 2); if (t <= 17) push(t - 3, 4); else { push(15, 4); push(t - 18, 4); } } else push(t, 2);
+      return;
+    }
+    const [special, ...kids] = t;
+    push(kids.length - 1, 2); push(special, 2);
+    for (let i = kids.length - 1; i >= 0; i--) walk(kids[i]);
+  };
+  walk(tree);
+  while (bits.length % 4) bits.push(0);
+  let s = '';
+  for (let i = 0; i < bits.length; i += 4) s = (bits[i] | bits[i + 1] << 1 | bits[i + 2] << 2 | bits[i + 3] << 3).toString(16).toUpperCase() + s;
+  return s;
+}
+
+test('paintStates: hand-derived vectors from the serializer', () => {
+  assert.deepEqual(paintStates('8'), [2]); // leaf, state 2: bits 00 01 -> nibble 8
+  assert.deepEqual(paintStates('2C'), [5]); // leaf, escape 11 + nibble 2 (5-3): bits 0011 0100 -> C then 2
+  assert.deepEqual(paintStates('1C'), [4]);
+  assert.deepEqual(paintStates('409'), [0, 1]); // one split, special side 2, children written in reverse: 1 then 0
+  assert.throws(() => paintStates(''), /truncated/);
+  assert.throws(() => paintStates('G'), /bad digit/);
+});
+
+test('paintStates: round trip through the mirror encoder (escape nibbles and three-way split)', () => {
+  assert.equal(encodePaint(2), '8');
+  assert.equal(encodePaint(5), '2C');
+  assert.equal(encodePaint([2, 1, 0]), '409');
+  for (const tree of [0, 1, 3, 17, 18, 20, [1, 4, 0], [3, 7, 18, 2, 16], [0, [1, 5, 6], 0, [2, 1, 19]]])
+    assert.deepEqual(paintStates(encodePaint(tree)), leaves(tree), JSON.stringify(tree));
+  function leaves(t) { return typeof t === 'number' ? [t] : t.slice(1).reverse().flatMap(leaves); } // slicer writes children in reverse
+});
+
+const paintedDemo = (paints) => {
+  const files = demoFiles();
+  let i = 0;
+  files['3D/3dmodel.model'] = files['3D/3dmodel.model'].replace(/<triangle /g, () => { const p = paints[i++]; return p ? `<triangle paint_color="${p}" ` : '<triangle '; });
+  return makeZip(files);
+};
+
+test('painted 3MF: a filament painted on a face is used even with no part on it', async () => {
+  const { palette, painted } = await parse3mf(paintedDemo(['8', '1C'])); // filaments 2 and 4 on two of four faces
+  assert.equal(painted, true);
+  assert.deepEqual(palette.filter((c) => c.painted).map((c) => c.index), [2, 4]);
+  assert.deepEqual(palette.filter((c) => c.used).map((c) => c.index), [1, 2, 3, 4, 5, 6]); // 4 joins the parts' extruders
+});
+
+test('painted 3MF: when every face is painted, only the painted filaments are used', async () => {
+  const bytes = paintedDemo(['8', '1C', '8', encodePaint([2, 4, 2])]);
+  writeFileSync(`${HERE}../examples/painted-demo.3mf`, bytes); // CLI demo of a fully painted model
+  const { palette } = await parse3mf(bytes);
+  assert.deepEqual(palette.filter((c) => c.used).map((c) => c.index), [2, 4]);
 });

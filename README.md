@@ -27,14 +27,14 @@ Tests: `node --test`.
 
 ## How it reads the 3MF
 
-Palette comes from `filament_colour` in `Metadata/project_settings.config` (Bambu Studio, OrcaSlicer, Snapmaker Orca). Used filaments come from the `extruder` entries in `Metadata/model_settings.config`. If any `.model` file carries `paint_color`, the model is painted and every palette entry counts as used. Without `project_settings.config` we fall back to `displaycolor` in the `basematerials` of `3D/3dmodel.model`; if nothing is there we say so.
+Palette comes from `filament_colour` in `Metadata/project_settings.config` (Bambu Studio, OrcaSlicer, Snapmaker Orca). Used filaments come from the `extruder` entries in `Metadata/model_settings.config`. Painted models are decoded: each `paint_color` (Bambu Studio, OrcaSlicer) or `mmu_segmentation` (PrusaSlicer) triangle attribute is walked as the libslic3r `TriangleSelector` bit tree, so a filament counts as used when it is painted on at least one face, and a part's own extruder counts as used while any face is left unpainted. Without `project_settings.config` we fall back to `displaycolor` in the `basematerials` of `3D/3dmodel.model`; if nothing is there we say so.
 
 Spool assignment is exact (brute force over the six nearest spools per slot) for up to four slots, greedy beyond that. Merges keep the colour with more parts, then the lower palette index.
 
 ## What it does not do
 
 - No 3D preview. You get tables, not a render.
-- The `paint_color` tree is not decoded; a painted model counts all filaments as used.
+- Painted faces are read per filament, not per part: a part whose extruder is set in `model_settings.config` counts as used while any face in the file is unpainted, even if that one part is painted over entirely.
 - dE00 is computed on the nominal hex in the file, not on the measured filament. Two PLA spools with the same hex can still print differently.
 - Only `.3mf` input. STL has no colour.
 

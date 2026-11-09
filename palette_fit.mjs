@@ -54,19 +54,59 @@ export function deltaE00(lab1, lab2) {
 
 export const label = (dE) => (dE < 2 ? 'hard to see' : dE <= 5 ? 'visible side by side' : 'clearly different');
 
-/** -> { palette: [{index, hex, uses, used}], painted, source: 'project_settings' | 'basematerials' | 'none' } */
+/**
+ * Leaf states of one painted triangle (`paint_color` in Bambu Studio / OrcaSlicer / Snapmaker Orca,
+ * `slic3rpe:mmu_segmentation` in PrusaSlicer). 0 = the part's own extruder, n = filament n.
+ * Format: libslic3r TriangleSelector::serialize + FacetsAnnotation::set_triangle_from_string (OrcaSlicer main):
+ * hex digits are read from the END of the string, 4 bits each, least significant bit first; per triangle
+ * 2 bits = split sides (0 = leaf); split: 2 bits special side, then split+1 children; leaf: 2 bits state,
+ * state 3 = escape, +4 bits (state - 3), nibble 15 = second escape, +4 bits (state - 18).
+ */
+export function paintStates(hex) {
+  const bits = [];
+  for (let i = hex.length - 1; i >= 0; i--) {
+    const d = parseInt(hex[i], 16);
+    if (Number.isNaN(d)) throw new Error(`paint_color: bad digit "${hex[i]}"`);
+    for (let b = 0; b < 4; b++) bits.push((d >> b) & 1);
+  }
+  let p = 0;
+  const states = [];
+  const read = (n) => {
+    if (p + n > bits.length) throw new Error('paint_color: truncated');
+    let v = 0;
+    for (let b = 0; b < n; b++) v |= bits[p++] << b;
+    return v;
+  };
+  const walk = () => {
+    const split = read(2);
+    if (split) { read(2); for (let c = 0; c <= split; c++) walk(); return; }
+    let n = read(2);
+    if (n === 3) { n = 3 + read(4); if (n === 18) n = 18 + read(4); }
+    states.push(n);
+  };
+  walk();
+  return states;
+}
+
+/** -> { palette: [{index, hex, uses, painted, used}], painted, source: 'project_settings' | 'basematerials' | 'none' } */
 export async function parse3mf(data) {
   const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
   const zip = listZip(bytes);
   const dec = new TextDecoder();
   const text = async (name) => (zip.has(name) ? dec.decode(await zip.get(name).read()) : '');
   const main = await text('3D/3dmodel.model');
-  // shortcut: paint_color tree not decoded, all filaments count as used; decode when a user needs it
-  let painted = main.includes('paint_color=');
-  for (const name of zip.keys()) {
-    if (painted) break;
-    if (/^3D\/Objects\/.*\.model$/.test(name)) painted = (await text(name)).includes('paint_color=');
-  }
+  const onFaces = new Set(); // filaments painted on at least one face
+  let plain = 0; // faces (or leaves) left to the part's own extruder
+  const scan = (xml) => {
+    for (const m of xml.matchAll(/<triangle\b([^>]*)>/g)) {
+      const pc = /(?:paint_color|mmu_segmentation)="([0-9A-Fa-f]+)"/.exec(m[1]);
+      if (!pc) { plain++; continue; }
+      for (const s of paintStates(pc[1])) s ? onFaces.add(s) : plain++;
+    }
+  };
+  scan(main);
+  for (const name of zip.keys()) if (/^3D\/Objects\/.*\.model$/.test(name)) scan(await text(name));
+  const painted = onFaces.size > 0;
   let source = 'project_settings';
   const settings = await text('Metadata/project_settings.config');
   let hexes = settings ? JSON.parse(settings).filament_colour ?? [] : [];
@@ -74,7 +114,9 @@ export async function parse3mf(data) {
   if (!hexes.length) return { palette: [], painted, source: 'none' };
   const uses = new Map();
   for (const m of (await text('Metadata/model_settings.config')).matchAll(/<metadata key="extruder" value="(\d+)"/g)) uses.set(+m[1], (uses.get(+m[1]) ?? 0) + 1);
-  const palette = hexes.map((hex, i) => ({ index: i + 1, hex: normHex(hex), uses: uses.get(i + 1) ?? 0, used: painted || !uses.size || uses.has(i + 1) }));
+  // shortcut: a part's own extruder counts as used whenever any face anywhere is unpainted (not per part); refine if a user hits it
+  const byPart = (i) => (plain > 0 || !painted) && (!uses.size || uses.has(i));
+  const palette = hexes.map((hex, i) => ({ index: i + 1, hex: normHex(hex), uses: uses.get(i + 1) ?? 0, painted: onFaces.has(i + 1), used: onFaces.has(i + 1) || byPart(i + 1) }));
   return { palette, painted, source };
 }
 
@@ -154,8 +196,8 @@ export async function fit(bytes, spoolsText, slots = SLOTS) {
 export function planText(r) {
   if (!r.palette.length) return 'No colours found in this 3MF (no project_settings.config and no basematerials).';
   const n = (x) => x.toFixed(2);
-  const out = [`Palette: ${r.palette.length} colours, ${r.palette.filter((c) => c.used).length} used (source: ${r.source}${r.painted ? ', painted model: all filaments count as used' : ''})`];
-  for (const c of r.palette) out.push(`  ${c.index}  ${c.hex}  ${c.used ? 'used' : 'unused'}${c.uses ? ` (${c.uses} parts)` : ''}`);
+  const out = [`Palette: ${r.palette.length} colours, ${r.palette.filter((c) => c.used).length} used (source: ${r.source}${r.painted ? `, ${r.palette.filter((c) => c.painted).length} painted on faces` : ''})`];
+  for (const c of r.palette) out.push(`  ${c.index}  ${c.hex}  ${c.used ? 'used' : 'unused'}${c.uses ? ` (${c.uses} part${c.uses === 1 ? '' : 's'})` : ''}`);
   out.push('', r.merges.length ? 'Merges (closest pairs folded to fit 4 slots):' : 'Merges: none');
   for (const m of r.merges) out.push(`  ${m.from.hex} -> ${m.into.hex}  dE00 ${n(m.deltaE)} (${m.label})`);
   out.push('', 'Slot plan:');

@@ -98,7 +98,7 @@ function render(r) {
   $('#out').hidden = false; $('#copy').hidden = false;
   const n = (x) => x.toFixed(2);
   $('#palette-note').textContent = r.palette.length
-    ? `${r.palette.length} colours, ${r.palette.filter((c) => c.used).length} used (source: ${r.source}${r.painted ? '; painted model, so all filaments count as used' : ''})`
+    ? `${r.palette.length} colours, ${r.palette.filter((c) => c.used).length} used (source: ${r.source}${r.painted ? `; ${r.palette.filter((c) => c.painted).length} painted on faces` : ''})`
     : 'No colours found in this 3MF (no project_settings.config and no basematerials).';
   $('#palette').innerHTML = '<tr><th>#</th><th>Colour</th><th>Used</th></tr>' + r.palette.map((c) =>
     `<tr><td>${c.index}</td><td>${sw(c.hex)}</td><td>${c.used ? 'yes' : 'no'}${c.uses ? ` <span class="muted">(${c.uses} parts)</span>` : ''}</td></tr>`).join('');
