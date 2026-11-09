@@ -19,6 +19,8 @@
   #drop input { display: none; } #file-name { color: var(--accent); display: block; margin-top: 8px; min-height: 1.5em; }
   textarea { width: 100%; min-height: 160px; background: #0e1013; color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; }
   label.small { display: block; color: var(--muted); font-size: 0.85rem; margin-top: 8px; }
+  #add-name { flex: 1; min-width: 140px; background: #0e1013; color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; font: inherit; }
+  input[type=color] { width: 44px; height: 38px; padding: 2px; background: #0e1013; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
   button { background: var(--accent); color: #0b1a12; border: 0; border-radius: 6px; padding: 10px 18px; font: inherit; font-weight: 600; cursor: pointer; }
   button.ghost { background: transparent; color: var(--fg); border: 1px solid var(--line); }
   .row { display: flex; gap: 12px; align-items: center; margin-top: 16px; flex-wrap: wrap; }
@@ -48,6 +50,8 @@
     <section class="panel">
       <h2 style="margin-top:0">2. Your spools</h2>
       <textarea id="spools" placeholder="One per line: name,#RRGGBB  (or just #RRGGBB)&#10;Bambu PLA Basic Red,#FF0000&#10;eSUN Snow White,#FAFAFA&#10;&#10;Or paste a Spoolman JSON export."></textarea>
+      <div class="row" style="margin-top:10px"><input id="add-name" placeholder="Spool name, e.g. Snapspeed PLA basic red"><input type="color" id="add-hex" value="#ff0000" title="Pick the colour"><button id="add-spool" class="ghost" type="button">Add spool</button></div>
+      <label class="small">Do not know the hex? Type the name, pick the colour in the box and press Add spool: the line is written for you.</label>
       <label class="small">Spoolman JSON export: <input type="file" id="spoolman" accept=".json,application/json"></label>
     </section>
   </div>
@@ -60,10 +64,10 @@
     <h2>Slot plan</h2><table id="plan"></table>
   </div>
 
-  <footer>GPL-3.0. Source and CLI: <a href="https://github.com/designmaster-solutions/u1-palette-fit">github.com/designmaster-solutions/u1-palette-fit</a>. dE00 under 2 is hard to see, 2 to 5 is visible side by side, over 5 is clearly different.</footer>
+  <footer>GPL-3.0. Source and CLI: <a href="https://github.com/designmaster-solutions/u1-palette-fit">github.com/designmaster-solutions/u1-palette-fit</a>. dE00 under 2 is hard to see, 2 to 5 is visible side by side, over 5 is clearly different; over 25 nothing on your shelf is that colour family, so the slot is reported as "no spool in reach" instead of getting a wrong spool.</footer>
 </main>
 <script type="module">
-import { fit, planText, cm2 } from './palette_fit.mjs';
+import { fit, planText, cm2, NO_MATCH } from './palette_fit.mjs';
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const sw = (hex) => `<span class="sw" style="background:${esc(hex)}"></span><code>${esc(hex)}</code>`;
@@ -75,6 +79,11 @@ spools.addEventListener('input', () => localStorage.setItem('u1-palette-fit.spoo
 $('#spoolman').addEventListener('change', async (e) => {
   const f = e.target.files[0]; if (!f) return;
   spools.value = await f.text(); spools.dispatchEvent(new Event('input'));
+});
+$('#add-spool').addEventListener('click', () => {
+  const name = $('#add-name').value.trim(), hex = $('#add-hex').value.toUpperCase();
+  spools.value = spools.value.replace(/\s*$/, spools.value.trim() ? '\n' : '') + `${name || hex},${hex}\n`;
+  spools.dispatchEvent(new Event('input')); $('#add-name').value = '';
 });
 
 const drop = $('#drop');
@@ -100,13 +109,15 @@ function render(r) {
   $('#palette-note').textContent = r.palette.length
     ? `${r.palette.length} colours, ${r.palette.filter((c) => c.used).length} used (source: ${r.source}${r.painted ? `; ${r.palette.filter((c) => c.painted).length} painted on faces` : ''})`
     : 'No colours found in this 3MF (no project_settings.config and no basematerials).';
-  $('#palette').innerHTML = '<tr><th>#</th><th>Colour</th><th>Used</th></tr>' + r.palette.map((c) =>
-    `<tr><td>${c.index}</td><td>${sw(c.hex)}</td><td>${c.used ? 'yes' : 'no'}${c.uses ? ` <span class="muted">(${c.uses} parts)</span>` : ''}${c.area ? ` <span class="muted">${cm2(c.area)}</span>` : ''}</td></tr>`).join('');
+  if (r.palette.some((c) => c.area)) $('#palette-note').textContent += '. Printed surface is the area of the faces printed in each filament, what you see on the model; it is not weight: the slicer\'s grams include walls and infill.';
+  $('#palette').innerHTML = '<tr><th>#</th><th>Colour</th><th>Printed surface</th></tr>' + r.palette.map((c) =>
+    `<tr><td>${c.index}</td><td>${sw(c.hex)}</td><td>${c.used ? (c.area ? cm2(c.area) : 'used') : '<span class="muted">not used</span>'}${c.uses ? ` <span class="muted">(${c.uses} part${c.uses === 1 ? '' : 's'})</span>` : ''}</td></tr>`).join('');
   $('#merges').innerHTML = r.merges.length
     ? '<tr><th>Folded</th><th>Into</th><th>dE00</th></tr>' + r.merges.map((m) => `<tr><td>${sw(m.from.hex)}</td><td>${sw(m.into.hex)}</td><td>${n(m.deltaE)} <span class="muted">${m.label}${m.area ? `, ${cm2(m.area)} repainted` : ''}</span></td></tr>`).join('')
     : '<tr><td class="muted">None: the model fits in 4 slots.</td></tr>';
-  $('#plan').innerHTML = '<tr><th>Slot</th><th>Model colour</th><th>Spool</th><th>dE00</th></tr>' + r.plan.map((p) =>
-    `<tr><td>${p.slot}</td><td>${sw(p.modelHex)}</td><td>${sw(p.spool.hex)} ${esc(p.spool.name)}</td><td>${n(p.deltaE)} <span class="muted">${p.label}</span></td></tr>`).join('');
+  $('#plan').innerHTML = '<tr><th>Slot</th><th>Model colour</th><th>Spool</th><th>dE00</th></tr>' + r.plan.map((p) => p.spool
+    ? `<tr><td>${p.slot}</td><td>${sw(p.modelHex)}</td><td>${sw(p.spool.hex)} ${esc(p.spool.name)}</td><td>${n(p.deltaE)} <span class="muted">${p.label}</span></td></tr>`
+    : `<tr><td>${p.slot}</td><td>${sw(p.modelHex)}</td><td><strong>No spool in reach</strong>: load a spool near <code>${esc(p.modelHex)}</code></td><td><span class="muted">nearest ${sw(p.nearest.hex)} ${esc(p.nearest.name)} at ${n(p.deltaE)}, over ${NO_MATCH}</span></td></tr>`).join('');
 }
 </script>
 </body>

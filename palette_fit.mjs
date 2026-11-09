@@ -54,6 +54,8 @@ export function deltaE00(lab1, lab2) {
 
 export const label = (dE) => (dE < 2 ? 'hard to see' : dE <= 5 ? 'visible side by side' : 'clearly different');
 export const cm2 = (mm2) => `${(mm2 / 100).toFixed(1)} cm²`;
+/** dE00 above which nothing on the shelf is the same colour family: red vs dark red is 23.8, navy vs black 29.7, white vs yellow 30.5. */
+export const NO_MATCH = 25;
 
 /**
  * Leaf states of one painted triangle (`paint_color` in Bambu Studio / OrcaSlicer / Snapmaker Orca,
@@ -130,7 +132,8 @@ export async function parse3mf(data) {
   if (!hexes.length) return { palette: [], painted, source: 'none' };
   // shortcut: a part's own extruder counts as used whenever any face anywhere is unpainted (not per part); refine if a user hits it
   const byPart = (i) => (plain > 0 || !painted) && (!uses.size || uses.has(i));
-  const palette = hexes.map((hex, i) => ({ index: i + 1, hex: normHex(hex), uses: uses.get(i + 1) ?? 0, area: area.get(i + 1) ?? 0, painted: onFaces.has(i + 1), used: onFaces.has(i + 1) || byPart(i + 1) }));
+  // a filament with surface is used whatever model_settings says: the unpainted faces of an object with no extruder print in filament 1
+  const palette = hexes.map((hex, i) => ({ index: i + 1, hex: normHex(hex), uses: uses.get(i + 1) ?? 0, area: area.get(i + 1) ?? 0, painted: onFaces.has(i + 1), used: onFaces.has(i + 1) || (area.get(i + 1) ?? 0) > 0 || byPart(i + 1) }));
   return { palette, painted, source };
 }
 
@@ -189,17 +192,22 @@ export function reduceTo(colours, n = SLOTS) {
   return { kept, merges };
 }
 
-/** Distinct spool per slot minimising total dE00. Exact over the 6 nearest per slot when slots <= SLOTS, else greedy. */
+/**
+ * Distinct spool per slot minimising total dE00. Exact over the 6 nearest per slot when slots <= SLOTS, else greedy.
+ * A colour with nothing within NO_MATCH gets `spool: null` and its `nearest`, keeps its slot and takes no spool from the others.
+ */
 export function assign(colours, spools, nearest = 6) {
-  if (spools.length < colours.length) throw new Error(`need at least ${colours.length} spools, got ${spools.length}`);
+  if (!spools.length) throw new Error('add at least one spool');
   const spoolLabs = spools.map((s) => hexToLab(s.hex));
   const sorted = colours.map((c) => {
     const lab = hexToLab(c.hex);
     return spools.map((spool, k) => ({ spool, deltaE: deltaE00(lab, spoolLabs[k]) })).sort((x, y) => x.deltaE - y.deltaE);
   });
+  const reach = colours.map((_, i) => i).filter((i) => sorted[i][0].deltaE <= NO_MATCH);
+  if (spools.length < reach.length) throw new Error(`need at least ${reach.length} spools, got ${spools.length}`);
   let pick;
-  if (colours.length <= SLOTS) {
-    const cands = sorted.map((s) => s.slice(0, nearest));
+  if (reach.length <= SLOTS) {
+    const cands = reach.map((i) => sorted[i].slice(0, nearest));
     let bestTotal = Infinity;
     const cur = [], used = new Set();
     (function go(i, total) {
@@ -212,9 +220,14 @@ export function assign(colours, spools, nearest = 6) {
     })(0, 0);
   } else {
     const used = new Set();
-    pick = sorted.map((s) => { const c = s.find((x) => !used.has(x.spool)); used.add(c.spool); return c; });
+    pick = reach.map((i) => { const c = sorted[i].find((x) => !used.has(x.spool)); used.add(c.spool); return c; });
   }
-  return pick.map((p, i) => ({ slot: `T${i + 1}`, modelHex: colours[i].hex, spool: p.spool, deltaE: p.deltaE, label: label(p.deltaE) }));
+  const chosen = new Map(reach.map((i, k) => [i, pick[k]]));
+  return colours.map((c, i) => {
+    const p = chosen.get(i), near = sorted[i][0];
+    return p ? { slot: `T${i + 1}`, modelHex: c.hex, spool: p.spool, deltaE: p.deltaE, label: label(p.deltaE) }
+      : { slot: `T${i + 1}`, modelHex: c.hex, spool: null, nearest: near.spool, deltaE: near.deltaE, label: 'no spool in reach' };
+  });
 }
 
 /** Whole pipeline, shared by the page and the CLI. */
@@ -230,9 +243,12 @@ export function planText(r) {
   const n = (x) => x.toFixed(2);
   const out = [`Palette: ${r.palette.length} colours, ${r.palette.filter((c) => c.used).length} used (source: ${r.source}${r.painted ? `, ${r.palette.filter((c) => c.painted).length} painted on faces` : ''})`];
   for (const c of r.palette) out.push(`  ${c.index}  ${c.hex}  ${c.used ? 'used' : 'unused'}${c.uses ? ` (${c.uses} part${c.uses === 1 ? '' : 's'})` : ''}${c.area ? `  ${cm2(c.area)}` : ''}`);
+  if (r.palette.some((c) => c.area)) out.push('  (cm² = surface of the faces printed in that filament, what you see; not weight, the slicer knows the grams)');
   out.push('', r.merges.length ? 'Merges (closest pairs folded to fit 4 slots):' : 'Merges: none');
   for (const m of r.merges) out.push(`  ${m.from.hex} -> ${m.into.hex}  dE00 ${n(m.deltaE)} (${m.label})${m.area ? `, ${cm2(m.area)} repainted` : ''}`);
   out.push('', 'Slot plan:');
-  for (const p of r.plan) out.push(`  ${p.slot}  ${p.modelHex} -> ${p.spool.name} ${p.spool.hex}  dE00 ${n(p.deltaE)} (${p.label})`);
+  for (const p of r.plan) out.push(p.spool
+    ? `  ${p.slot}  ${p.modelHex} -> ${p.spool.name} ${p.spool.hex}  dE00 ${n(p.deltaE)} (${p.label})`
+    : `  ${p.slot}  ${p.modelHex} -> no spool within dE00 ${NO_MATCH} (nearest ${p.nearest.name} ${p.nearest.hex}, dE00 ${n(p.deltaE)}): load a spool near ${p.modelHex}`);
   return out.join('\n');
 }

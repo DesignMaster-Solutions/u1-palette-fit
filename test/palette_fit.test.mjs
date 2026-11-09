@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { deflateRawSync } from 'node:zlib';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { deltaE00, hexToLab, parse3mf, parseSpools, reduceTo, assign, paintStates } from '../palette_fit.mjs';
+import { deltaE00, hexToLab, parse3mf, parseSpools, reduceTo, assign, paintStates, planText, NO_MATCH } from '../palette_fit.mjs';
 
 const HERE = new URL('.', import.meta.url).pathname;
 
@@ -198,4 +198,28 @@ test('reduce: above dE00 2 the colour on the smallest surface is the one repaint
   const byDeltaOnly = reduceTo(used.map(({ area, ...c }) => c), 4); // no areas known: closest pair by dE00 alone
   assert.notEqual(byDeltaOnly.merges[0].from.index, 3);
   assert.equal(byDeltaOnly.merges[0].area, undefined);
+});
+
+// --- Zoe_M (Snapmaker staff) on topic 44138, 09/11/2026: a Santa whose unpainted faces print in filament 1 showed "no  60.2 cm²",
+// and the white of the model, with no white spool on her shelf, was sent to the red spool at dE00 45.81
+test('a filament that prints the unpainted faces is used even when model_settings never names it', async () => {
+  const files = demoFiles();
+  files['Metadata/model_settings.config'] = '<?xml version="1.0"?><config><object id="1"><metadata key="name" value="santa"/><part id="7" subtype="normal_part"><metadata key="extruder" value="2"/></part></object></config>';
+  files['3D/3dmodel.model'] = files['3D/3dmodel.model'].replace('<triangle ', '<triangle paint_color="8" '); // one face painted 2, three faces left to the default extruder 1
+  const { palette } = await parse3mf(makeZip(files));
+  assert.ok(palette[0].area > 0);
+  assert.equal(palette[0].used, true);
+  assert.deepEqual(palette.filter((c) => c.used).map((c) => c.index), [1, 2]);
+});
+
+test('assign: nothing within dE00 25 means "no spool in reach", not a far spool, and the colour takes no spool from the others', () => {
+  const spools = parseSpools('Snapmaker red,#FF0000\nSnapmaker black,#000000\nSnapmaker yellow,#FFFF00\nSnapmaker green,#008000');
+  const plan = assign(['#C12E1F', '#000000', '#FFFFFF', '#F0BE02'].map((hex) => ({ hex })), spools);
+  assert.deepEqual(plan.map((p) => p.spool?.hex ?? null), ['#FF0000', '#000000', null, '#FFFF00']);
+  assert.equal(plan[2].label, 'no spool in reach');
+  assert.equal(plan[2].nearest.hex, '#FFFF00');
+  assert.ok(plan[2].deltaE > NO_MATCH && plan[2].deltaE < 31);
+  assert.equal(plan[0].label, 'clearly different'); // 11.89: still shown, the owner decides
+  assert.match(planText({ palette: [{ index: 1, hex: '#FFFFFF', used: true }], source: 'test', merges: [], plan }), /no spool within dE00 25 .*nearest Snapmaker yellow #FFFF00/);
+  assert.throws(() => assign([{ hex: '#FFFFFF' }], []), /spool/);
 });
