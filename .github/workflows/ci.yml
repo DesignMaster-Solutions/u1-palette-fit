@@ -13,4 +13,4 @@ jobs:
           node-version: ${{ matrix.node }}
       - run: node --test
       - name: CLI on the example 3MF
-        run: node cli.mjs --help
+        run: node cli.mjs examples/six-colour-demo.3mf examples/spools.txt --json | node -e 'const r=JSON.parse(require("fs").readFileSync(0,"utf8")); if(!(r.plan||r.slots||Object.keys(r).length)) process.exit(1)'
