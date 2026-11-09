@@ -14,7 +14,7 @@
   p.lead { color: var(--muted); margin: 0 0 24px; }
   .grid { display: grid; gap: 16px; grid-template-columns: 1fr 1fr; } @media (max-width: 700px) { .grid { grid-template-columns: 1fr; } }
   .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
-  #drop { border: 2px dashed var(--line); border-radius: 8px; padding: 28px 16px; text-align: center; color: var(--muted); cursor: pointer; }
+  #drop { display: block; border: 2px dashed var(--line); border-radius: 8px; padding: 28px 16px; text-align: center; color: var(--muted); cursor: pointer; }
   #drop.over { border-color: var(--accent); color: var(--fg); }
   #drop input { display: none; } #file-name { color: var(--accent); display: block; margin-top: 8px; min-height: 1.5em; }
   textarea { width: 100%; min-height: 160px; background: #0e1013; color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; }
