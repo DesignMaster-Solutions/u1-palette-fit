@@ -235,3 +235,23 @@ test('real OOglees Santa: palette, printed surfaces and slot plan match the comm
   assert.deepEqual(got.plan.map((p) => ({ slot: p.slot, spool: p.spool?.hex ?? null, dE00: Math.round(p.deltaE * 10) / 10, label: p.label })), want.plan);
   assert.equal(got.merges.length, 0); // four colours, four slots: nothing to fold
 });
+
+// --- Snapmaker's own filament lines as one-click spools (Zoe_M, topic 44138: "the hex colour code is on our official stores")
+const { LINES, spoolLines } = await import('../snapmaker_filaments.mjs');
+
+test('Snapmaker presets: every line is valid, unique by name and reads back through parseSpools', () => {
+  assert.equal(LINES['SnapSpeed PLA'].length, 30); // the 30 swatches of the store's colour selector
+  assert.ok(LINES['SnapSpeed PLA'].some(([n, hex]) => n === 'Pearl White' && hex === '#E2DEDB')); // the swatch in her screenshot
+  for (const [line, colours] of Object.entries(LINES)) {
+    assert.equal(new Set(colours.map(([n]) => n)).size, colours.length, `${line}: a colour name twice`);
+    for (const [n, hex] of colours) assert.match(hex, /^#[0-9A-F]{6}$/, `${line} ${n}`);
+    assert.deepEqual(parseSpools(spoolLines(line)).map((s) => s.hex), colours.map(([, hex]) => hex), line);
+  }
+  assert.equal(spoolLines('Matte PLA', 'Sunburst Yellow'), 'Snapmaker Matte PLA Sunburst Yellow,#F0BE02');
+});
+
+test('the Santa palette on the Snapmaker Matte PLA line: black, white and yellow are that line exactly, red is Engine Red', () => {
+  const plan = assign(['#C12E1F', '#000000', '#FFFFFF', '#F0BE02'].map((hex) => ({ hex })), parseSpools(spoolLines('Matte PLA')));
+  assert.deepEqual(plan.map((p) => p.spool.name.replace('Snapmaker Matte PLA ', '')), ['Engine Red', 'Carbon Black', 'Ivory White', 'Sunburst Yellow']);
+  assert.deepEqual(plan.map((p) => +p.deltaE.toFixed(2)), [5.09, 0, 0, 0]);
+});

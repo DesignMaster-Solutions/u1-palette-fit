@@ -19,7 +19,7 @@
   #drop input { display: none; } #file-name { color: var(--accent); display: block; margin-top: 8px; min-height: 1.5em; }
   textarea { width: 100%; min-height: 160px; background: #0e1013; color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; }
   label.small { display: block; color: var(--muted); font-size: 0.85rem; margin-top: 8px; }
-  #add-name { flex: 1; min-width: 140px; background: #0e1013; color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; font: inherit; }
+  #add-name, #preset { flex: 1; min-width: 140px; background: #0e1013; color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; font: inherit; }
   input[type=color] { width: 44px; height: 38px; padding: 2px; background: #0e1013; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
   button { background: var(--accent); color: #0b1a12; border: 0; border-radius: 6px; padding: 10px 18px; font: inherit; font-weight: 600; cursor: pointer; }
   button.ghost { background: transparent; color: var(--fg); border: 1px solid var(--line); }
@@ -31,7 +31,7 @@
   code { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; }
   .muted { color: var(--muted); }
   footer { margin-top: 48px; color: var(--muted); font-size: 0.85rem; }
-  footer a { color: var(--muted); }
+  footer a, label.small a { color: var(--muted); }
 </style>
 </head>
 <body>
@@ -52,6 +52,8 @@
       <textarea id="spools" placeholder="One per line: name,#RRGGBB  (or just #RRGGBB)&#10;Bambu PLA Basic Red,#FF0000&#10;eSUN Snow White,#FAFAFA&#10;&#10;Or paste a Spoolman JSON export."></textarea>
       <div class="row" style="margin-top:10px"><input id="add-name" placeholder="Spool name, e.g. Snapspeed PLA basic red"><input type="color" id="add-hex" value="#ff0000" title="Pick the colour"><button id="add-spool" class="ghost" type="button">Add spool</button></div>
       <label class="small">Do not know the hex? Type the name, pick the colour in the box and press Add spool: the line is written for you.</label>
+      <div class="row" style="margin-top:10px"><select id="preset" aria-label="Snapmaker filament"></select><button id="add-preset" class="ghost" type="button">Add</button></div>
+      <label class="small">Snapmaker spool? Pick it by name, or a whole line at once, and its hex is written for you. Values are the ones in the colour selector of the <a href="https://us.snapmaker.com/products/snapspeed-pla-filament" rel="noopener">official store</a>, read on 9 November 2026.</label>
       <label class="small">Spoolman JSON export: <input type="file" id="spoolman" accept=".json,application/json"></label>
     </section>
   </div>
@@ -68,6 +70,7 @@
 </main>
 <script type="module">
 import { fit, planText, cm2, NO_MATCH } from './palette_fit.mjs';
+import { LINES, spoolLines } from './snapmaker_filaments.mjs';
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const sw = (hex) => `<span class="sw" style="background:${esc(hex)}"></span><code>${esc(hex)}</code>`;
@@ -80,11 +83,18 @@ $('#spoolman').addEventListener('change', async (e) => {
   const f = e.target.files[0]; if (!f) return;
   spools.value = await f.text(); spools.dispatchEvent(new Event('input'));
 });
+const addLines = (text) => {
+  spools.value = spools.value.replace(/\s*$/, spools.value.trim() ? '\n' : '') + text + '\n';
+  spools.dispatchEvent(new Event('input'));
+};
 $('#add-spool').addEventListener('click', () => {
   const name = $('#add-name').value.trim(), hex = $('#add-hex').value.toUpperCase();
-  spools.value = spools.value.replace(/\s*$/, spools.value.trim() ? '\n' : '') + `${name || hex},${hex}\n`;
-  spools.dispatchEvent(new Event('input')); $('#add-name').value = '';
+  addLines(`${name || hex},${hex}`); $('#add-name').value = '';
 });
+$('#preset').innerHTML = Object.entries(LINES).map(([line, colours]) => `<optgroup label="Snapmaker ${esc(line)}">`
+  + `<option value="${esc(line)}|">All ${colours.length} ${esc(line)} colours</option>`
+  + colours.map(([n, hex]) => `<option value="${esc(line)}|${esc(n)}">${esc(n)} ${hex}</option>`).join('') + '</optgroup>').join('');
+$('#add-preset').addEventListener('click', () => { const [line, name] = $('#preset').value.split('|'); addLines(spoolLines(line, name)); });
 
 const drop = $('#drop');
 async function load(file) { modelBytes = new Uint8Array(await file.arrayBuffer()); $('#file-name').textContent = file.name; $('#error').textContent = ''; }
