@@ -1,5 +1,7 @@
 # U1 Palette Fit
 
+[![ci](https://github.com/DesignMaster-Solutions/u1-palette-fit/actions/workflows/ci.yml/badge.svg)](https://github.com/DesignMaster-Solutions/u1-palette-fit/actions/workflows/ci.yml) `node --test` on every push, Node 20/22/24
+
 Maps the colour palette of a downloaded multicolour 3MF onto the four slots of a Snapmaker U1, using the filament spools you actually own. Runs in the browser or from the command line, with no dependencies.
 
 ## Why
