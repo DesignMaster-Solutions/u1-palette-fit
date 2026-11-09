@@ -10,6 +10,8 @@ A MakerWorld or Printables project ships with the designer's filaments. The slic
 
 Web: open `index.html` locally (any static server or straight from disk in a browser that allows module scripts from `file://`), or use https://designmaster-solutions.github.io/u1-palette-fit/. Drop the 3MF, paste your spools as `name,#RRGGBB` lines (or just `#RRGGBB`, or a Spoolman JSON export; if you do not know a spool's hex, type its name, pick the colour in the colour box and press "Add spool"), press Fit. The spool list is kept in `localStorage`. "Copy plan as text" gives the same output as the CLI.
 
+Releases: https://github.com/DesignMaster-Solutions/u1-palette-fit/releases (zip of the CLI, the web page and the examples; nothing to install).
+
 CLI (Node 18 or newer):
 
 ```
