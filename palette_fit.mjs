@@ -53,16 +53,18 @@ export function deltaE00(lab1, lab2) {
 }
 
 export const label = (dE) => (dE < 2 ? 'hard to see' : dE <= 5 ? 'visible side by side' : 'clearly different');
+export const cm2 = (mm2) => `${(mm2 / 100).toFixed(1)} cm²`;
 
 /**
  * Leaf states of one painted triangle (`paint_color` in Bambu Studio / OrcaSlicer / Snapmaker Orca,
- * `slic3rpe:mmu_segmentation` in PrusaSlicer). 0 = the part's own extruder, n = filament n.
+ * `slic3rpe:mmu_segmentation` in PrusaSlicer). 0 = the part's own extruder, n = filament n. Pass an array as
+ * `weights` to also get, per leaf, the fraction of the triangle's area it covers.
  * Format: libslic3r TriangleSelector::serialize + FacetsAnnotation::set_triangle_from_string (OrcaSlicer main):
  * hex digits are read from the END of the string, 4 bits each, least significant bit first; per triangle
  * 2 bits = split sides (0 = leaf); split: 2 bits special side, then split+1 children; leaf: 2 bits state,
  * state 3 = escape, +4 bits (state - 3), nibble 15 = second escape, +4 bits (state - 18).
  */
-export function paintStates(hex) {
+export function paintStates(hex, weights) {
   const bits = [];
   for (let i = hex.length - 1; i >= 0; i--) {
     const d = parseInt(hex[i], 16);
@@ -77,14 +79,15 @@ export function paintStates(hex) {
     for (let b = 0; b < n; b++) v |= bits[p++] << b;
     return v;
   };
-  const walk = () => {
+  // shortcut: siblings share their parent evenly (libslic3r's 2-side split is really 1/4, 3/8, 3/8), refine if a user needs it
+  const walk = (w) => {
     const split = read(2);
-    if (split) { read(2); for (let c = 0; c <= split; c++) walk(); return; }
+    if (split) { read(2); for (let c = 0; c <= split; c++) walk(w / (split + 1)); return; }
     let n = read(2);
     if (n === 3) { n = 3 + read(4); if (n === 18) n = 18 + read(4); }
-    states.push(n);
+    states.push(n); weights?.push(w);
   };
-  walk();
+  walk(1);
   return states;
 }
 
@@ -95,13 +98,26 @@ export async function parse3mf(data) {
   const dec = new TextDecoder();
   const text = async (name) => (zip.has(name) ? dec.decode(await zip.get(name).read()) : '');
   const main = await text('3D/3dmodel.model');
+  const modelSettings = await text('Metadata/model_settings.config');
+  const uses = new Map();
+  for (const m of modelSettings.matchAll(/<metadata key="extruder" value="(\d+)"/g)) uses.set(+m[1], (uses.get(+m[1]) ?? 0) + 1);
+  const own = new Map(); // part/object id -> its extruder; unpainted faces of that mesh print with it (part wins over object)
+  for (const m of modelSettings.matchAll(/<(object|part) id="(\d+)"[^>]*>(?:(?!<\/?(?:object|part)\b)[\s\S])*?<metadata key="extruder" value="(\d+)"/g)) if (m[1] === 'part' || !own.has(m[2])) own.set(m[2], +m[3]);
   const onFaces = new Set(); // filaments painted on at least one face
   let plain = 0; // faces (or leaves) left to the part's own extruder
+  const area = new Map(); // filament -> mm² of surface it prints
+  const add = (f, a) => area.set(f, (area.get(f) ?? 0) + a);
   const scan = (xml) => {
-    for (const m of xml.matchAll(/<triangle\b([^>]*)>/g)) {
-      const pc = /(?:paint_color|mmu_segmentation)="([0-9A-Fa-f]+)"/.exec(m[1]);
-      if (!pc) { plain++; continue; }
-      for (const s of paintStates(pc[1])) s ? onFaces.add(s) : plain++;
+    for (const o of xml.matchAll(/<object\b([^>]*)>([\s\S]*?)<\/object>/g)) {
+      const ext = own.get(/\bid="(\d+)"/.exec(o[1])?.[1]) ?? 1;
+      const v = [...o[2].matchAll(/<vertex x="([^"]+)" y="([^"]+)" z="([^"]+)"/g)].map((m) => [+m[1], +m[2], +m[3]]);
+      for (const m of o[2].matchAll(/<triangle\b([^>]*)>/g)) {
+        const a = triArea(v, m[1]);
+        const pc = /(?:paint_color|mmu_segmentation)="([0-9A-Fa-f]+)"/.exec(m[1]);
+        if (!pc) { plain++; add(ext, a); continue; }
+        const w = []; // fraction of the face under each leaf
+        paintStates(pc[1], w).forEach((s, k) => { s ? onFaces.add(s) : plain++; add(s || ext, a * w[k]); });
+      }
     }
   };
   scan(main);
@@ -112,13 +128,19 @@ export async function parse3mf(data) {
   let hexes = settings ? JSON.parse(settings).filament_colour ?? [] : [];
   if (!hexes.length) { source = 'basematerials'; hexes = [...main.matchAll(/<base\b[^>]*\bdisplaycolor="([^"]+)"/g)].map((m) => m[1]); }
   if (!hexes.length) return { palette: [], painted, source: 'none' };
-  const uses = new Map();
-  for (const m of (await text('Metadata/model_settings.config')).matchAll(/<metadata key="extruder" value="(\d+)"/g)) uses.set(+m[1], (uses.get(+m[1]) ?? 0) + 1);
   // shortcut: a part's own extruder counts as used whenever any face anywhere is unpainted (not per part); refine if a user hits it
   const byPart = (i) => (plain > 0 || !painted) && (!uses.size || uses.has(i));
-  const palette = hexes.map((hex, i) => ({ index: i + 1, hex: normHex(hex), uses: uses.get(i + 1) ?? 0, painted: onFaces.has(i + 1), used: onFaces.has(i + 1) || byPart(i + 1) }));
+  const palette = hexes.map((hex, i) => ({ index: i + 1, hex: normHex(hex), uses: uses.get(i + 1) ?? 0, area: area.get(i + 1) ?? 0, painted: onFaces.has(i + 1), used: onFaces.has(i + 1) || byPart(i + 1) }));
   return { palette, painted, source };
 }
+
+/** mm² of one <triangle v1 v2 v3> over the mesh's vertex list; 0 when a vertex is missing. */
+const triArea = (v, attrs) => {
+  const [a, b, c] = ['v1', 'v2', 'v3'].map((k) => v[+new RegExp(`\\b${k}="(\\d+)"`).exec(attrs)?.[1]]);
+  if (!a || !b || !c) return 0;
+  const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], w = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+  return Math.hypot(u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]) / 2;
+};
 
 /** Lines "name,#RRGGBB" / "#RRGGBB", or a Spoolman JSON export. -> [{name, hex}] */
 export function parseSpools(text) {
@@ -137,22 +159,32 @@ export function parseSpools(text) {
   });
 }
 
-/** Greedy merge of the closest pair until n colours remain. -> { kept, merges: [{from, into, deltaE, label}] } */
+/**
+ * Greedy merge until n colours remain. -> { kept, merges: [{from, into, deltaE, label, area?}] }
+ * With a surface area (mm²) known for every colour, a pair under dE00 2 (nobody can tell them apart) folds first whatever
+ * its size; above that the cost is dE00 x the surface that changes colour, so a small detail folds before a whole body,
+ * and `area` is the mm² repainted. Without areas it is the closest pair by dE00, keeping the colour with more parts.
+ */
 export function reduceTo(colours, n = SLOTS) {
   const kept = colours.map((c) => ({ ...c }));
   const labs = new Map(kept.map((c) => [c, hexToLab(c.hex)]));
+  const weighted = kept.length > n && kept.every((c) => c.area > 0);
+  const score = (d, a, b) => (!weighted || d < 2 ? d : 2 + d * Math.min(a.area, b.area)); // weighted scores stay above any d < 2
+  const size = (c) => (weighted ? c.area : c.uses ?? 0);
   const merges = [];
   while (kept.length > n) {
-    let best = { deltaE: Infinity };
+    let best = { score: Infinity };
     for (let i = 0; i < kept.length; i++) for (let j = i + 1; j < kept.length; j++) {
       const d = deltaE00(labs.get(kept[i]), labs.get(kept[j]));
-      if (d < best.deltaE) best = { i, j, deltaE: d };
+      const s = score(d, kept[i], kept[j]);
+      if (s < best.score) best = { i, j, deltaE: d, score: s };
     }
     const a = kept[best.i], b = kept[best.j]; // a has the lower palette index
-    const [into, from] = (b.uses ?? 0) > (a.uses ?? 0) ? [b, a] : [a, b];
+    const [into, from] = size(b) > size(a) ? [b, a] : [a, b];
     into.uses = (into.uses ?? 0) + (from.uses ?? 0);
+    into.area = (into.area ?? 0) + (from.area ?? 0);
     kept.splice(kept.indexOf(from), 1);
-    merges.push({ from, into, deltaE: best.deltaE, label: label(best.deltaE) });
+    merges.push({ from, into, deltaE: best.deltaE, label: label(best.deltaE), ...(weighted && { area: from.area }) });
   }
   return { kept, merges };
 }
@@ -197,9 +229,9 @@ export function planText(r) {
   if (!r.palette.length) return 'No colours found in this 3MF (no project_settings.config and no basematerials).';
   const n = (x) => x.toFixed(2);
   const out = [`Palette: ${r.palette.length} colours, ${r.palette.filter((c) => c.used).length} used (source: ${r.source}${r.painted ? `, ${r.palette.filter((c) => c.painted).length} painted on faces` : ''})`];
-  for (const c of r.palette) out.push(`  ${c.index}  ${c.hex}  ${c.used ? 'used' : 'unused'}${c.uses ? ` (${c.uses} part${c.uses === 1 ? '' : 's'})` : ''}`);
+  for (const c of r.palette) out.push(`  ${c.index}  ${c.hex}  ${c.used ? 'used' : 'unused'}${c.uses ? ` (${c.uses} part${c.uses === 1 ? '' : 's'})` : ''}${c.area ? `  ${cm2(c.area)}` : ''}`);
   out.push('', r.merges.length ? 'Merges (closest pairs folded to fit 4 slots):' : 'Merges: none');
-  for (const m of r.merges) out.push(`  ${m.from.hex} -> ${m.into.hex}  dE00 ${n(m.deltaE)} (${m.label})`);
+  for (const m of r.merges) out.push(`  ${m.from.hex} -> ${m.into.hex}  dE00 ${n(m.deltaE)} (${m.label})${m.area ? `, ${cm2(m.area)} repainted` : ''}`);
   out.push('', 'Slot plan:');
   for (const p of r.plan) out.push(`  ${p.slot}  ${p.modelHex} -> ${p.spool.name} ${p.spool.hex}  dE00 ${n(p.deltaE)} (${p.label})`);
   return out.join('\n');

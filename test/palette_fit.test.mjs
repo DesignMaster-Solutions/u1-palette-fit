@@ -173,3 +173,29 @@ test('painted 3MF: when every face is painted, only the painted filaments are us
   const { palette } = await parse3mf(bytes);
   assert.deepEqual(palette.filter((c) => c.used).map((c) => c.index), [2, 4]);
 });
+
+// --- surface area per filament: tetrahedron faces are 50, 50, 50 and 86.60 mm² (vertices in demoFiles)
+test('painted 3MF: area per filament follows the faces, split leaves share the face evenly', async () => {
+  const { palette } = await parse3mf(paintedDemo([encodePaint(1), encodePaint(2), encodePaint([0, 5, 6]), encodePaint([0, 5, [0, 5, [0, 5, 3]]])]));
+  const area = Object.fromEntries(palette.map((c) => [c.index, +c.area.toFixed(2)]));
+  assert.deepEqual(area, { 1: 50, 2: 50, 3: 10.83, 4: 0, 5: 100.78, 6: 25 });
+});
+
+test('reduce: a pair nobody can tell apart folds first whatever its size', async () => {
+  const { palette } = await parse3mf(paintedDemo([encodePaint(1), encodePaint(2), encodePaint([0, 5, 6]), encodePaint([0, 5, [0, 5, [0, 5, 3]]])]));
+  const { merges } = reduceTo(palette.filter((c) => c.used), 4);
+  assert.equal(merges.length, 1);
+  assert.deepEqual([merges[0].from.index, merges[0].into.index], [2, 1]); // the two reds, dE00 1.05, not the 10.8 mm² green
+  assert.equal(+merges[0].area.toFixed(2), 50);
+});
+
+test('reduce: above dE00 2 the colour on the smallest surface is the one repainted', async () => {
+  const { palette } = await parse3mf(paintedDemo([encodePaint(1), encodePaint(4), encodePaint([0, 5, 6]), encodePaint([0, 5, [0, 5, [0, 5, 3]]])]));
+  const used = palette.filter((c) => c.used); // red 50, blue 50, green 10.83, white 100.83, black 25 mm²
+  const weighted = reduceTo(used, 4);
+  assert.equal(weighted.merges[0].from.index, 3);
+  assert.equal(+weighted.merges[0].area.toFixed(2), 10.83);
+  const byDeltaOnly = reduceTo(used.map(({ area, ...c }) => c), 4); // no areas known: closest pair by dE00 alone
+  assert.notEqual(byDeltaOnly.merges[0].from.index, 3);
+  assert.equal(byDeltaOnly.merges[0].area, undefined);
+});

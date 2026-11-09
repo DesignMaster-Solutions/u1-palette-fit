@@ -63,7 +63,7 @@
   <footer>GPL-3.0. Source and CLI: <a href="https://github.com/designmaster-solutions/u1-palette-fit">github.com/designmaster-solutions/u1-palette-fit</a>. dE00 under 2 is hard to see, 2 to 5 is visible side by side, over 5 is clearly different.</footer>
 </main>
 <script type="module">
-import { fit, planText } from './palette_fit.mjs';
+import { fit, planText, cm2 } from './palette_fit.mjs';
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const sw = (hex) => `<span class="sw" style="background:${esc(hex)}"></span><code>${esc(hex)}</code>`;
@@ -101,9 +101,9 @@ function render(r) {
     ? `${r.palette.length} colours, ${r.palette.filter((c) => c.used).length} used (source: ${r.source}${r.painted ? `; ${r.palette.filter((c) => c.painted).length} painted on faces` : ''})`
     : 'No colours found in this 3MF (no project_settings.config and no basematerials).';
   $('#palette').innerHTML = '<tr><th>#</th><th>Colour</th><th>Used</th></tr>' + r.palette.map((c) =>
-    `<tr><td>${c.index}</td><td>${sw(c.hex)}</td><td>${c.used ? 'yes' : 'no'}${c.uses ? ` <span class="muted">(${c.uses} parts)</span>` : ''}</td></tr>`).join('');
+    `<tr><td>${c.index}</td><td>${sw(c.hex)}</td><td>${c.used ? 'yes' : 'no'}${c.uses ? ` <span class="muted">(${c.uses} parts)</span>` : ''}${c.area ? ` <span class="muted">${cm2(c.area)}</span>` : ''}</td></tr>`).join('');
   $('#merges').innerHTML = r.merges.length
-    ? '<tr><th>Folded</th><th>Into</th><th>dE00</th></tr>' + r.merges.map((m) => `<tr><td>${sw(m.from.hex)}</td><td>${sw(m.into.hex)}</td><td>${n(m.deltaE)} <span class="muted">${m.label}</span></td></tr>`).join('')
+    ? '<tr><th>Folded</th><th>Into</th><th>dE00</th></tr>' + r.merges.map((m) => `<tr><td>${sw(m.from.hex)}</td><td>${sw(m.into.hex)}</td><td>${n(m.deltaE)} <span class="muted">${m.label}${m.area ? `, ${cm2(m.area)} repainted` : ''}</span></td></tr>`).join('')
     : '<tr><td class="muted">None: the model fits in 4 slots.</td></tr>';
   $('#plan').innerHTML = '<tr><th>Slot</th><th>Model colour</th><th>Spool</th><th>dE00</th></tr>' + r.plan.map((p) =>
     `<tr><td>${p.slot}</td><td>${sw(p.modelHex)}</td><td>${sw(p.spool.hex)} ${esc(p.spool.name)}</td><td>${n(p.deltaE)} <span class="muted">${p.label}</span></td></tr>`).join('');

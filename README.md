@@ -29,7 +29,11 @@ Tests: `node --test`.
 
 Palette comes from `filament_colour` in `Metadata/project_settings.config` (Bambu Studio, OrcaSlicer, Snapmaker Orca). Used filaments come from the `extruder` entries in `Metadata/model_settings.config`. Painted models are decoded: each `paint_color` (Bambu Studio, OrcaSlicer) or `mmu_segmentation` (PrusaSlicer) triangle attribute is walked as the libslic3r `TriangleSelector` bit tree, so a filament counts as used when it is painted on at least one face, and a part's own extruder counts as used while any face is left unpainted. Without `project_settings.config` we fall back to `displaycolor` in the `basematerials` of `3D/3dmodel.model`; if nothing is there we say so.
 
-Spool assignment is exact (brute force over the six nearest spools per slot) for up to four slots, greedy beyond that. Merges keep the colour with more parts, then the lower palette index.
+Each filament also gets the surface it prints, in mm²: the area of every triangle it covers, with a painted triangle shared among its paint leaves by the tree splits (siblings share their parent evenly). Unpainted faces go to the extruder of their part or object in `model_settings.config`.
+
+Merges use that surface. A pair under dE00 2 (nobody can tell them apart) folds first whatever its size; above that the cost is dE00 times the surface that changes colour, so a 2 mm detail folds before a whole body, and the plan says how many cm² are repainted. When no surface is known (a file with no mesh we can read) merges fall back to the closest pair by dE00, keeping the colour with more parts, then the lower palette index.
+
+Spool assignment is exact (brute force over the six nearest spools per slot) for up to four slots, greedy beyond that.
 
 ## What it does not do
 
