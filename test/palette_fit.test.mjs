@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { deflateRawSync } from 'node:zlib';
-import { readFileSync, writeFileSync } from 'node:fs';
-import { deltaE00, hexToLab, parse3mf, parseSpools, reduceTo, assign, paintStates, planText, NO_MATCH } from '../palette_fit.mjs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { deltaE00, hexToLab, parse3mf, parseSpools, reduceTo, assign, paintStates, planText, fit, NO_MATCH } from '../palette_fit.mjs';
 
 const HERE = new URL('.', import.meta.url).pathname;
 
@@ -222,4 +222,16 @@ test('assign: nothing within dE00 25 means "no spool in reach", not a far spool,
   assert.equal(plan[0].label, 'clearly different'); // 11.89: still shown, the owner decides
   assert.match(planText({ palette: [{ index: 1, hex: '#FFFFFF', used: true }], source: 'test', merges: [], plan }), /no spool within dE00 25 .*nearest Snapmaker yellow #FFFF00/);
   assert.throws(() => assign([{ hex: '#FFFFFF' }], []), /spool/);
+});
+
+// --- real file: OOglees Santa Claus (Snapmaker Space 47460), the model Zoe_M (Snapmaker staff) tested on topic 44138. Its licence
+// forbids redistribution, so the 3MF is downloaded by hand (examples/ooglees-santa/README.md) and this test skips without it.
+const SANTA = `${HERE}../examples/ooglees-santa/`;
+test('real OOglees Santa: palette, printed surfaces and slot plan match the committed record', { skip: !existsSync(`${SANTA}santa.3mf`) && 'examples/ooglees-santa/santa.3mf not downloaded' }, async () => {
+  const want = JSON.parse(readFileSync(`${SANTA}expected.json`, 'utf8'));
+  const got = await fit(readFileSync(`${SANTA}santa.3mf`), readFileSync(`${SANTA}zoe-shelf.txt`, 'utf8'));
+  assert.equal(got.source, 'project_settings');
+  assert.deepEqual(got.palette.map((c) => ({ hex: c.hex, used: c.used, cm2: Math.round(c.area / 100) })), want.palette);
+  assert.deepEqual(got.plan.map((p) => ({ slot: p.slot, spool: p.spool?.hex ?? null, dE00: Math.round(p.deltaE * 10) / 10, label: p.label })), want.plan);
+  assert.equal(got.merges.length, 0); // four colours, four slots: nothing to fold
 });

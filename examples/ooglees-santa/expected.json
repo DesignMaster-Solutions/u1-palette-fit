@@ -1,0 +1,51 @@
+{
+  "source": "https://space.snapmaker.com/en/model/47460 (OOglees Santa Claus, print profile 51649, sha256 0b8caabb100198bce0e3cba1bc2c4d600647f06ba4fe43291bee943db5644c12)",
+  "palette": [
+    {
+      "hex": "#C12E1F",
+      "used": true,
+      "cm2": 60
+    },
+    {
+      "hex": "#000000",
+      "used": true,
+      "cm2": 17
+    },
+    {
+      "hex": "#FFFFFF",
+      "used": true,
+      "cm2": 156
+    },
+    {
+      "hex": "#F0BE02",
+      "used": true,
+      "cm2": 32
+    }
+  ],
+  "plan": [
+    {
+      "slot": "T1",
+      "spool": "#FF0000",
+      "dE00": 11.9,
+      "label": "clearly different"
+    },
+    {
+      "slot": "T2",
+      "spool": "#000000",
+      "dE00": 0,
+      "label": "hard to see"
+    },
+    {
+      "slot": "T3",
+      "spool": null,
+      "dE00": 30.5,
+      "label": "no spool in reach"
+    },
+    {
+      "slot": "T4",
+      "spool": "#FFFF00",
+      "dE00": 17.7,
+      "label": "clearly different"
+    }
+  ]
+}

@@ -23,6 +23,8 @@ Try it with the bundled demo:
 node cli.mjs examples/six-colour-demo.3mf examples/spools.txt
 ```
 
+A real file: the OOglees Santa that Snapmaker staff tested on the forum, with the slicer's grams next to the tool's surfaces, is documented in [`examples/ooglees-santa/`](examples/ooglees-santa/README.md) (its licence forbids redistribution, so you download it there).
+
 Tests: `node --test`.
 
 ## How it reads the 3MF

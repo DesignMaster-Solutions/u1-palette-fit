@@ -1,0 +1,4 @@
+Snapmaker red,#FF0000
+Snapmaker black,#000000
+Snapmaker yellow,#FFFF00
+Snapmaker green,#008000
