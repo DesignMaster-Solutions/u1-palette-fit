@@ -108,7 +108,7 @@ test('spoolman JSON export', () => {
 });
 
 test('real coaster.3mf without project_settings does not throw', async () => {
-  const bytes = readFileSync('/Users/alandebortolo/Backups/impressora/u1-purge-ledger/examples/coaster/coaster.3mf');
+  const bytes = readFileSync(`${HERE}../examples/coaster.3mf`);
   const r = await parse3mf(bytes);
   assert.ok(r.palette.length >= 1 || r.source === 'none', JSON.stringify(r));
 });
