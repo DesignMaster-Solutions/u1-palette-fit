@@ -255,3 +255,27 @@ test('the Santa palette on the Snapmaker Matte PLA line: black, white and yellow
   assert.deepEqual(plan.map((p) => p.spool.name.replace('Snapmaker Matte PLA ', '')), ['Engine Red', 'Carbon Black', 'Ivory White', 'Sunburst Yellow']);
   assert.deepEqual(plan.map((p) => +p.deltaE.toFixed(2)), [5.09, 0, 0, 0]);
 });
+
+// Core-spec 3MF (PrusaSlicer, OpenSCAD, Fusion): colour per object (pid/pindex) and per triangle (pid/p1) into basematerials.
+// Shape found in public files on 2026-11-10: three single-colour objects, and one object with three colours by triangle.
+test('basematerials 3MF: surface follows pindex of the object and p1 of the triangle; a base with no face is unused', async () => {
+  const tri = (extra = '') => `<mesh><vertices><vertex x="0" y="0" z="0"/><vertex x="10" y="0" z="0"/><vertex x="0" y="10" z="0"/></vertices><triangles><triangle v1="0" v2="1" v3="2"${extra}/></triangles></mesh>`;
+  const model = `<model><resources><basematerials id="1"><base name="a" displaycolor="#505050FF"/><base name="b" displaycolor="#8B0000FF"/><base name="c" displaycolor="#FF8C00FF"/><base name="d" displaycolor="#00FF00FF"/></basematerials>`
+    + `<object id="2" type="model" pid="1" pindex="1">${tri()}</object>`
+    + `<object id="3" type="model">${tri(' pid="1" p1="2"')}</object>`
+    + `<object id="4" type="model">${tri()}</object></resources></model>`;
+  const r = await parse3mf(makeZip({ '3D/3dmodel.model': model }));
+  assert.equal(r.source, 'basematerials');
+  assert.deepEqual(r.palette.map((c) => c.area), [50, 50, 50, 0]);
+  assert.deepEqual(r.palette.map((c) => c.used), [true, true, true, false]);
+});
+
+test('CLI: a file that is not a 3MF says so in one line and exits 1 (a Git LFS pointer saved as .3mf did a stack trace)', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const bad = `${HERE}not-a-3mf.tmp`;
+  writeFileSync(bad, 'version https://git-lfs.github.com/spec/v1\n');
+  const p = spawnSync(process.execPath, [`${HERE}../cli.mjs`, bad, `${HERE}../examples/spools.txt`], { encoding: 'utf8' });
+  (await import('node:fs')).rmSync(bad);
+  assert.equal(p.status, 1);
+  assert.match(p.stderr, /^.*not a ZIP file.*\n$/);
+});

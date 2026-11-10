@@ -105,18 +105,30 @@ export async function parse3mf(data) {
   for (const m of modelSettings.matchAll(/<metadata key="extruder" value="(\d+)"/g)) uses.set(+m[1], (uses.get(+m[1]) ?? 0) + 1);
   const own = new Map(); // part/object id -> its extruder; unpainted faces of that mesh print with it (part wins over object)
   for (const m of modelSettings.matchAll(/<(object|part) id="(\d+)"[^>]*>(?:(?!<\/?(?:object|part)\b)[\s\S])*?<metadata key="extruder" value="(\d+)"/g)) if (m[1] === 'part' || !own.has(m[2])) own.set(m[2], +m[3]);
+  let source = 'project_settings';
+  const settings = await text('Metadata/project_settings.config');
+  let hexes = settings ? JSON.parse(settings).filament_colour ?? [] : [];
+  if (!hexes.length) { source = 'basematerials'; hexes = [...main.matchAll(/<base\b[^>]*\bdisplaycolor="([^"]+)"/g)].map((m) => m[1]); }
+  // core-spec 3MF (PrusaSlicer, OpenSCAD, Fusion): the object's pid/pindex and the triangle's pid/p1 pick the base material
+  // shortcut: one <basematerials> group assumed (pid is not resolved), resolve it when a file with two groups shows up
+  const base = source === 'basematerials';
+  let mats = false; // some object or face names a base material
   const onFaces = new Set(); // filaments painted on at least one face
   let plain = 0; // faces (or leaves) left to the part's own extruder
   const area = new Map(); // filament -> mm² of surface it prints
   const add = (f, a) => area.set(f, (area.get(f) ?? 0) + a);
   const scan = (xml) => {
     for (const o of xml.matchAll(/<object\b([^>]*)>([\s\S]*?)<\/object>/g)) {
-      const ext = own.get(/\bid="(\d+)"/.exec(o[1])?.[1]) ?? 1;
+      const pi = base && /\bpid="/.test(o[1]) ? +(/\bpindex="(\d+)"/.exec(o[1])?.[1] ?? 0) + 1 : 0;
+      if (pi) mats = true;
+      const ext = own.get(/\bid="(\d+)"/.exec(o[1])?.[1]) ?? (pi || 1);
       const v = [...o[2].matchAll(/<vertex x="([^"]+)" y="([^"]+)" z="([^"]+)"/g)].map((m) => [+m[1], +m[2], +m[3]]);
       for (const m of o[2].matchAll(/<triangle\b([^>]*)>/g)) {
         const a = triArea(v, m[1]);
         const pc = /(?:paint_color|mmu_segmentation)="([0-9A-Fa-f]+)"/.exec(m[1]);
-        if (!pc) { plain++; add(ext, a); continue; }
+        const p1 = base && /\bpid="/.test(m[1]) ? +(/\bp1="(\d+)"/.exec(m[1])?.[1] ?? 0) + 1 : 0;
+        if (p1) mats = true;
+        if (!pc) { plain++; add(p1 || ext, a); continue; }
         const w = []; // fraction of the face under each leaf
         paintStates(pc[1], w).forEach((s, k) => { s ? onFaces.add(s) : plain++; add(s || ext, a * w[k]); });
       }
@@ -125,15 +137,11 @@ export async function parse3mf(data) {
   scan(main);
   for (const name of zip.keys()) if (/^3D\/Objects\/.*\.model$/.test(name)) scan(await text(name));
   const painted = onFaces.size > 0;
-  let source = 'project_settings';
-  const settings = await text('Metadata/project_settings.config');
-  let hexes = settings ? JSON.parse(settings).filament_colour ?? [] : [];
-  if (!hexes.length) { source = 'basematerials'; hexes = [...main.matchAll(/<base\b[^>]*\bdisplaycolor="([^"]+)"/g)].map((m) => m[1]); }
   if (!hexes.length) return { palette: [], painted, source: 'none' };
   // shortcut: a part's own extruder counts as used whenever any face anywhere is unpainted (not per part); refine if a user hits it
   const byPart = (i) => (plain > 0 || !painted) && (!uses.size || uses.has(i));
   // a filament with surface is used whatever model_settings says: the unpainted faces of an object with no extruder print in filament 1
-  const palette = hexes.map((hex, i) => ({ index: i + 1, hex: normHex(hex), uses: uses.get(i + 1) ?? 0, area: area.get(i + 1) ?? 0, painted: onFaces.has(i + 1), used: onFaces.has(i + 1) || (area.get(i + 1) ?? 0) > 0 || byPart(i + 1) }));
+  const palette = hexes.map((hex, i) => ({ index: i + 1, hex: normHex(hex), uses: uses.get(i + 1) ?? 0, area: area.get(i + 1) ?? 0, painted: onFaces.has(i + 1), used: onFaces.has(i + 1) || (area.get(i + 1) ?? 0) > 0 || (!mats && byPart(i + 1)) }));
   return { palette, painted, source };
 }
 
