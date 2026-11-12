@@ -127,6 +127,7 @@ function render(r) {
     : '<tr><td class="muted">None: the model fits in 4 slots.</td></tr>';
   $('#plan').innerHTML = '<tr><th>Slot</th><th>Model colour</th><th>Spool</th><th>dE00</th></tr>' + r.plan.map((p) => p.spool
     ? `<tr><td>${p.slot}</td><td>${sw(p.modelHex)}</td><td>${sw(p.spool.hex)} ${esc(p.spool.name)}</td><td>${n(p.deltaE)} <span class="muted">${p.label}</span></td></tr>`
+    : p.taken ? `<tr><td>${p.slot}</td><td>${sw(p.modelHex)}</td><td><strong>No spool left in reach</strong>: load a spool near <code>${esc(p.modelHex)}</code></td><td><span class="muted">nearest ${sw(p.nearest.hex)} ${esc(p.nearest.name)} at ${n(p.deltaE)} is already in ${p.takenBy}</span></td></tr>`
     : `<tr><td>${p.slot}</td><td>${sw(p.modelHex)}</td><td><strong>No spool in reach</strong>: load a spool near <code>${esc(p.modelHex)}</code></td><td><span class="muted">nearest ${sw(p.nearest.hex)} ${esc(p.nearest.name)} at ${n(p.deltaE)}, over ${NO_MATCH}</span></td></tr>`).join('');
 }
 </script>

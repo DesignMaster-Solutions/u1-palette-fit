@@ -279,3 +279,15 @@ test('CLI: a file that is not a 3MF says so in one line and exits 1 (a Git LFS p
   assert.equal(p.status, 1);
   assert.match(p.stderr, /^.*not a ZIP file.*\n$/);
 });
+
+test('assign: when the only spool in reach goes to another colour, the loser gets "no spool left in reach", never a spool beyond dE00 25 (palette of the MasterYoda.3mf in Snapmaker/OrcaSlicer#926 on examples/spools.txt gave T1 Sunlu Lime at 28.29)', () => {
+  const yoda = ['#768D48', '#AE9F7D', '#FF8000', '#080A0D'].map((hex) => ({ hex }));
+  const plan = assign(yoda, parseSpools(readFileSync(`${HERE}../examples/spools.txt`, 'utf8')));
+  for (const p of plan) if (p.spool) assert.ok(p.deltaE <= NO_MATCH, `${p.slot} got ${p.spool.name} at ${p.deltaE.toFixed(2)}`);
+  const grey = plan.filter((p) => p.spool?.hex === '#808080'), left = plan.filter((p) => !p.spool);
+  assert.equal(grey.length, 1);
+  assert.equal(left.length, 1);
+  assert.equal(left[0].taken, true);
+  assert.equal(left[0].nearest.hex, '#808080');
+  assert.match(planText({ palette: [{ index: 1, hex: '#768D48', used: true }], source: 'test', merges: [], plan }), /already in T[12]/);
+});

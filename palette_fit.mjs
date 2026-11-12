@@ -215,7 +215,7 @@ export function assign(colours, spools, nearest = 6) {
   if (spools.length < reach.length) throw new Error(`need at least ${reach.length} spools, got ${spools.length}`);
   let pick;
   if (reach.length <= SLOTS) {
-    const cands = reach.map((i) => sorted[i].slice(0, nearest));
+    const cands = reach.map((i) => sorted[i].filter((x) => x.deltaE <= NO_MATCH).slice(0, nearest));
     let bestTotal = Infinity;
     const cur = [], used = new Set();
     (function go(i, total) {
@@ -225,14 +225,18 @@ export function assign(colours, spools, nearest = 6) {
         if (used.has(c.spool)) continue;
         used.add(c.spool); cur.push(c); go(i + 1, total + c.deltaE); cur.pop(); used.delete(c.spool);
       }
+      cur.push(null); go(i + 1, total + 1000); cur.pop(); // every spool in reach went to another colour: none, rather than one beyond NO_MATCH
     })(0, 0);
   } else {
     const used = new Set();
-    pick = reach.map((i) => { const c = sorted[i].find((x) => !used.has(x.spool)); used.add(c.spool); return c; });
+    pick = reach.map((i) => { const c = sorted[i].find((x) => !used.has(x.spool) && x.deltaE <= NO_MATCH) ?? null; if (c) used.add(c.spool); return c; });
   }
   const chosen = new Map(reach.map((i, k) => [i, pick[k]]));
+  const holder = new Map([...chosen].filter(([, p]) => p).map(([i, p]) => [p.spool, `T${i + 1}`]));
   return colours.map((c, i) => {
     const p = chosen.get(i), near = sorted[i][0];
+    // its spools within NO_MATCH all went to closer colours: say which slot holds the nearest
+    if (!p && near.deltaE <= NO_MATCH) return { slot: `T${i + 1}`, modelHex: c.hex, spool: null, nearest: near.spool, deltaE: near.deltaE, label: 'no spool left in reach', taken: true, takenBy: holder.get(near.spool) };
     return p ? { slot: `T${i + 1}`, modelHex: c.hex, spool: p.spool, deltaE: p.deltaE, label: label(p.deltaE) }
       : { slot: `T${i + 1}`, modelHex: c.hex, spool: null, nearest: near.spool, deltaE: near.deltaE, label: 'no spool in reach' };
   });
@@ -257,6 +261,7 @@ export function planText(r) {
   out.push('', 'Slot plan:');
   for (const p of r.plan) out.push(p.spool
     ? `  ${p.slot}  ${p.modelHex} -> ${p.spool.name} ${p.spool.hex}  dE00 ${n(p.deltaE)} (${p.label})`
+    : p.taken ? `  ${p.slot}  ${p.modelHex} -> no spool left within dE00 ${NO_MATCH} (nearest ${p.nearest.name} ${p.nearest.hex}, dE00 ${n(p.deltaE)}, is already in ${p.takenBy}): load a spool near ${p.modelHex}`
     : `  ${p.slot}  ${p.modelHex} -> no spool within dE00 ${NO_MATCH} (nearest ${p.nearest.name} ${p.nearest.hex}, dE00 ${n(p.deltaE)}): load a spool near ${p.modelHex}`);
   return out.join('\n');
 }
